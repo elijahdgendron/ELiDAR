@@ -17,6 +17,7 @@ p.addParameter('forceUnit',       '',            @(x)ischar(x)&ismember(x,uo))
 p.addParameter('filterNumNbr',    20,            @isnumeric)
 p.addParameter('filterThreshold', 1,             @isnumeric)
 p.addParameter('displayLLA',      true,          @islogical)
+p.addParameter('center',          false,         @islogical)
 
 p.parse(varargin{:});
 in = p.Results;
@@ -120,19 +121,19 @@ for ii = 1:n
         ptCloud = readPointCloud(lasReader);
     end
 
-    % To view liad data:
+    % To view lidar data:
     %     assignin('base','ptCloud',ptCloud)
     %     lidarViewer
 
     % OR
 
-%         labels = label2rgb(ptAttributes.Classification,'spring');
-%         l = unique(ptAttributes.Classification);
-%         labelDecoder = label2rgb(l, 'spring');
-%         colorData = reshape(labels,[],3);
-%         %colorData(:,1) = 255-colorData(:,3);
-%         figure
-%         pcshow(ptCloud.Location,colorData)
+    %     labels = label2rgb(ptAttributes.Classification,'spring');
+    %     l = unique(ptAttributes.Classification);
+    %     labelDecoder = label2rgb(l, 'spring');
+    %     colorData = reshape(labels,[],3);
+    %     %colorData(:,1) = 255-colorData(:,3);
+    %     figure
+    %     pcshow(ptCloud.Location,colorData)
 
     % De-project
     x = ptCloud.Location(:,1);
@@ -145,8 +146,14 @@ for ii = 1:n
     end
     %alt = ptCloud.Location(:,3);
 
+    % Center
+    if in.center
+        query_lat(ii) = mean(lat);
+        query_lon(ii) = mean(lon);
+    end
+
     % Get points within queryRadius_deg of query point
-    d_query = sqrt((lat-query_lat).^2+(lon-query_lon).^2);
+    d_query = sqrt((lat-query_lat(ii)).^2+(lon-query_lon(ii)).^2);
     ixQuery = d_query <= in.queryRadius_deg;
 
     % Save off closest lidar point to query
@@ -225,7 +232,7 @@ for ii = 1:n
                 end
 
                 % Select point from plot, ask for user entry
-                figure
+                f = figure;
                 if in.displayLLA
                     if project
                         [xlat, ylon] = projinv(proj, x, y);
@@ -261,6 +268,7 @@ for ii = 1:n
                     'Zoom','Done','Cancel','Zoom');
                 if isempty(saddleInfo) || strcmp(saddleInfo, 'Cancel')
                     clear x_cursor y_cursor
+                    close(f)
                     return
                 end
                 sx = x_cursor;
