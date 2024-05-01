@@ -72,6 +72,8 @@ Re-enable) This button will re-enable the "Analyze" and "Take Snapshot" buttons.
 
 RESET) Closes and re-opens GUI. Will prompt warning dialog if notes are taken.
 
+Default) Will navigate to "default" directory specified in defaultLocation.txt
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%
 Query Type:
 
