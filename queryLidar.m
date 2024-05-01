@@ -1,7 +1,7 @@
 function outdata = queryLidar(query_lat, query_lon, query_type, data_source, dem_source, varargin)
 %% Set option values
 % colorscale options
-cso = {'BR', 'greyscale', 'jet'};
+cso = {'BR', 'Greyscale', 'jet', 'turbo', 'winter'};
 % unit options
 uo = {'m', 'ft', 'N/A'};
 
@@ -221,12 +221,12 @@ for ii = 1:n
                 z = double(ptCloud.Location(:,3));
 
                 colorScale = (z-min(z))/(max(z)-min(z));
-                if strcmp(in.colorscale, 'greyscale')
+                if strcmp(in.colorscale, 'Greyscale')
                     c = repmat(colorScale, 1, 3);
                 elseif strcmp(in.colorscale, 'BR')
                     c = [colorScale, zeros(size(colorScale)), 1-colorScale];
-                elseif strcmp(in.colorscale, 'jet')
-                    c = colormap(jet(length(colorScale)));
+                elseif strcmp(in.colorscale, 'jet') || strcmp(in.colorscale, 'winter') || strcmp(in.colorscale, 'turbo')
+                    c = z;
                 else
                     error('Unimplemented color mapping');
                 end
@@ -240,7 +240,7 @@ for ii = 1:n
                         xlat = x;
                         ylon = y;
                     end
-                    scatter3(xlat, ylon, z, [], c);
+                    scatter3(xlat, ylon, z, [], z);
                     figH = gcf;
                     xlabel('Lat (deg)')
                     ylabel('Lon (deg)')
@@ -250,6 +250,16 @@ for ii = 1:n
                     xlabel('x (increases East)')
                     ylabel('y (increases North)')
                 end
+
+                % Color in some cases
+                if strcmp(in.colorscale, 'jet')
+                    colormap jet
+                elseif strcmp(in.colorscale, 'winter')
+                    colormap winter
+                elseif strcmp(in.colorscale, 'turbo')
+                    colormap turbo
+                end
+
                 if unitFoot
                     zlabel('Altitude (ft)')
                 else
