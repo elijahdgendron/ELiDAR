@@ -244,6 +244,7 @@ for ii = 1:n
                     figH = gcf;
                     xlabel('Lat (deg)')
                     ylabel('Lon (deg)')
+                    set(gca, 'YDir', 'reverse');
                 else
                     scatter3(x, y, z, [], c);
                     figH = gcf;
