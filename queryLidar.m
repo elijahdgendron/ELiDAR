@@ -1,4 +1,73 @@
 function outdata = queryLidar(query_lat, query_lon, query_type, data_source, dem_source, varargin)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Elijah Gendron
+% 05/15/2024
+%
+% DESCRIPTION:
+%   Query a LiDAR data set at/ around a point.
+%
+% INPUTS:
+%   query_lat ... Latitude of query. -90 to 90 (degrees) [numeric]
+%
+%   query_lon ... Longitude of query. -180 to 180 (degrees) [numeric]
+%
+%   query_type ... Determines query algorithm (case sensitive) [char]
+%       OPTIONS: 'search' ... Opens a 3D plot of the point cloud reduced locally around the query. 
+%                              Can be zoomed to pick a specific point. (recommended)
+%                'peak'   ... Assumes highest point in vicinity of query is the point of interest.
+%                'point'  ... Returns info for the closest LiDAR point in lat/lon to the query.
+%
+%   data_source ... Full file path to LiDAR data file (.las/.laz extension) [char]
+%
+%   dem_source ... Full file path to DEM data file (.tif/.img extension). Needed to parse local -> global coordinate
+%                   transformation. [char]
+%
+% OPTIONAL INPUT PAIRS (varargin)
+%
+%   1) cleanData ... If true, will run MATLAB built in LiDAR data cleaning algorithms [logical]:
+%                    pcdenoise - run with in.filterNumNbr and in.filterThreshold. Removes erronious points (see MATLAB documentation)
+%                    pcdownsample - removes duplicate points (see MATLAB documentation)
+%       DEFAULT: true
+%
+%   2) colorScale ... Set colorscale of 'search' 3D Plots [char]
+%           OPTIONS: 'jet', 'turbo', 'winter', 'Greyscale', 'BR'
+%       DEFAULT: 'jet'
+%
+%   3) filterGround ... If true, will filter by LiDAR classification = 2 [logical]
+%       DEFAULT: false
+%
+%   4) queryRadius_deg ... Set the initial radius around the query that 'search' mode will downsample to, in deg [numeric]
+%       DEFAULT: 0.0008
+%
+%   5) zoomScale ... Amount by which each sucessive zoom in 'search' mode will reduce the point cloud. [numeric]
+%       DEFAULT: 0.5
+%
+%   6) forceUnit ... Specify the native unit of .las/.laz file if conversion does not work correctly [char]
+%           OPTIONS: '', 'N/A', 'ft', 'm'
+%       DEFAULT: '' (read from DEM)
+%
+%   7) filterNumNbr ... Set NumNeighbors input in pcdenoise (see MATLAB documentation) [numeric]
+%       DEFAULT: 20
+%
+%   8) filterThreshold ... Set Threshold input in pcdenoise (see MATLAB documentation) [numeric]
+%       DEFAULT: 1
+%
+%   9) displayLLA ... If true, plots in 'search' mode will have lat/lon on the x/y axes, instead of local coordinates [logical]
+%       DEFAULT: true
+%
+%   10) center ... If true, will pick the center of the LiDAR data set as query point. Will ignore query_lat and 
+%                  query_lon inputs. Used primarily for dev testing [logical]
+%       DEFAULT: false
+%
+% OUTPUTS:
+%   outdata ... Data structure containing information about queried/ selected point. Contains the following fields:
+%       elevation_m ... Elevation of queried points in m [Nx1 numeric]
+%       elevation_ft ... Elevation of queried points in ft [Nx1 numeric]
+%       location_pos ... Location of queried points in local coordinate system  [Nx2 numeric]
+%       location_deg ... Location of queried points in lat/lon [Nx2 numeric]
+%       queryType ... Nx1 list of associated query types [Nx1 cellstr]  
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 %% Set option values
 % colorscale options
 cso = {'BR', 'Greyscale', 'jet', 'turbo', 'winter'};
@@ -29,16 +98,6 @@ in = p.Results;
 % Tools required:
 %"Lidar Toolbox"                              "2.0"        true         "LP"
 %"Mapping Toolbox"                            "5.2"        true         "MG"
-%
-
-% Tools wanted:
-%"Symbolic Math Toolbox"                      "9.0"        true         "SM"
-%"MATLAB Compiler"                            "8.3"        true         "CO"
-%"Curve Fitting Toolbox"                      "3.6"        true         "CF"
-
-
-
-
 % -------------
 %% Ensure input
 n = length(query_lat);
@@ -108,34 +167,21 @@ end
 
 %% Loop over query points
 for ii = 1:n
-    % Read in file
+    %% Read in file
     thisFile = data_source{ii};
     lasReader = lasFileReader(thisFile);
+
+    %% Filter by ground data
     if in.filterGround
+        % Need to parse attirbutes if filtering
         [ptCloud, ptAttributes] = readPointCloud(lasReader,"Attributes","Classification");
-        % Classification 2 = ground
-        % Often this leaves chunks empty, too many trees
 
         ptCloud = select(ptCloud, ptAttributes.Classification == 2);
     else
         ptCloud = readPointCloud(lasReader);
     end
 
-    % To view lidar data:
-    %     assignin('base','ptCloud',ptCloud)
-    %     lidarViewer
-
-    % OR
-
-    %     labels = label2rgb(ptAttributes.Classification,'spring');
-    %     l = unique(ptAttributes.Classification);
-    %     labelDecoder = label2rgb(l, 'spring');
-    %     colorData = reshape(labels,[],3);
-    %     %colorData(:,1) = 255-colorData(:,3);
-    %     figure
-    %     pcshow(ptCloud.Location,colorData)
-
-    % De-project
+    %% De-project data
     x = ptCloud.Location(:,1);
     y = ptCloud.Location(:,2);
     if project
@@ -144,14 +190,14 @@ for ii = 1:n
         lat = x;
         lon = y;
     end
-    %alt = ptCloud.Location(:,3);
 
-    % Center
+    % Center if dev test
     if in.center
         query_lat(ii) = mean(lat);
         query_lon(ii) = mean(lon);
     end
 
+    %% Downsample point cloud
     % Get points within queryRadius_deg of query point
     d_query = sqrt((lat-query_lat(ii)).^2+(lon-query_lon(ii)).^2);
     ixQuery = d_query <= in.queryRadius_deg;
@@ -167,22 +213,26 @@ for ii = 1:n
         continue
     end
 
-    % Create sub-set of pointCloud
+    % Downsample
     ptCloud = select(ptCloud, ixQuery);
 
-    % De-noise
+    %% Clean data
     if in.cleanData && project
+        % If project is false, data is already clean (from combining files)
+        % Remove noise
         ptCloud = pcdenoise(ptCloud, 'NumNeighbors',in.filterNumNbr, 'Threshold', in.filterThreshold);
 
         % Remove duplicates
         ptCloud = pcdownsample(ptCloud,'gridAverage',0.01);
     end
 
-    % Define query type
+    %% Complete Query
     switch query_type{ii}
         case 'peak'
+            %%%%%%%%%%%%%%%%%%
             %% PEAK
             % Find local max in region surrounding peak coords
+
             [m, ix] = max(ptCloud.Location(:,3));
             if project
                 [lat_m, lon_m] = projinv(proj, ptCloud.Location(ix,1), ptCloud.Location(ix,2));
@@ -191,19 +241,26 @@ for ii = 1:n
                 lon_m = ptCloud.Location(ix,2);
             end
 
+            % Set outdata
             if unitFoot
-                outdata.peak_elevation_m = double(m)/m2ft;
-                outdata.peak_elevation_ft = double(m);
+                outdata.elevation_m = double(m)/m2ft;
+                outdata.elevation_ft = double(m);
             else
-                outdata.peak_elevation_m = double(m);
-                outdata.peak_elevation_ft = double(m)*m2ft;
+                outdata.elevation_m = double(m);
+                outdata.elevation_ft = double(m)*m2ft;
             end
-            outdata.peak_location_m = double([ptCloud.Location(ix,1), ptCloud.Location(ix,2)]);
-            outdata.peak_location_deg = double([lat_m, lon_m]);
+            outdata.location_pos = double([ptCloud.Location(ix,1), ptCloud.Location(ix,2)]);
+            outdata.location_deg = double([lat_m, lon_m]);
 
-        case {'saddle','search'}
-            %% SEARCH / SADDLE
+        case 'search'
+            %%%%%%%%%%%%%%%%%%
+            %% SEARCH
+            % Open 3D plot for user selection
+
+            % Init global variables that are set in cursor function
             global x_cursor y_cursor
+
+            % Init
             redo = true;
             if ~project
                 queryRadiusTmp = in.queryRadius_deg/2;
@@ -214,12 +271,15 @@ for ii = 1:n
             end
             sx = [];
             sy = [];
+
+            % Redo as user specifies
             while redo
                 % Fit curve to nearby points
                 x = double(ptCloud.Location(:,1));
                 y = double(ptCloud.Location(:,2));
                 z = double(ptCloud.Location(:,3));
 
+                % Color mapping
                 colorScale = (z-min(z))/(max(z)-min(z));
                 if strcmp(in.colorscale, 'Greyscale')
                     c = repmat(colorScale, 1, 3);
@@ -261,6 +321,7 @@ for ii = 1:n
                     colormap turbo
                 end
 
+                % Apply labels
                 if unitFoot
                     zlabel('Altitude (ft)')
                 else
@@ -270,18 +331,21 @@ for ii = 1:n
                 dcm.Enable='on';
                 dcm.UpdateFcn = @threeRows;
 
+                % Prompt user input
                 opts = [];
                 opts.WindowStyle = 'normal';
                 opts.Resize = 'on';
-                % saddleInfo = inputdlg({'Select a Point, Click Done To Zoom, Enter Anything To Complete'}, 'Query Location', [1], ...
-                %     {''}, opts);
-                saddleInfo = MFquestdlg([0.1, 0.5],'Select a Point, Click Done To Zoom, Enter Anything To Complete','Query Location', ...
+                queryInfo = MFquestdlg([0.1, 0.5],'Select a Point, Click Done To Zoom, Enter Anything To Complete','Query Location', ...
                     'Zoom','Done','Cancel','Zoom');
-                if isempty(saddleInfo) || strcmp(saddleInfo, 'Cancel')
+
+                if isempty(queryInfo) || strcmp(queryInfo, 'Cancel')
+                    % Clear global variables if cancelled
                     clear x_cursor y_cursor
                     close(f)
                     return
                 end
+
+                % Read global variables
                 sx = x_cursor;
                 sy = y_cursor;
 
@@ -290,7 +354,7 @@ for ii = 1:n
                 end
 
                 %redo = isempty(saddleInfo{1});
-                redo = strcmp(saddleInfo, 'Zoom');
+                redo = strcmp(queryInfo, 'Zoom');
 
                 % Reduce figure size to(defined in zoomScale) and recolor
                 queryRadiusTmp = queryRadiusTmp*in.zoomScale;
@@ -302,11 +366,13 @@ for ii = 1:n
                 ptCloud = select(ptCloud, ixQuery);
 
                 close(figH);
-                
             end
+
+            % Clear global variables
             clear x_cursor y_cursor
 
             % When done, get user selected point
+            % Needs a very small tolerance to work
             ix = ismembertol(x, sx, 0.000000000001) & ismembertol(y, sy, 0.000000000001);
             if project
                 [lat_m, lon_m] = projinv(proj, x(ix), y(ix));
@@ -315,19 +381,22 @@ for ii = 1:n
                 lon_m = y(ix);
             end
 
+            % Set output data
             if unitFoot
-                outdata.([query_type{ii}, '_elevation_m']) = z(ix)/m2ft;
-                outdata.([query_type{ii}, '_elevation_ft']) = z(ix);
+                outdata.elevation_m = z(ix)/m2ft;
+                outdata.elevation_ft = z(ix);
             else
-                outdata.([query_type{ii}, '_elevation_m']) = z(ix);
-                outdata.([query_type{ii}, '_elevation_ft']) = z(ix)*m2ft;
+                outdata.elevation_m = z(ix);
+                outdata.elevation_ft = z(ix)*m2ft;
             end
-            outdata.([query_type{ii}, '_location_pos']) = [x(ix), y(ix)];
-            outdata.([query_type{ii}, '_location_deg']) = [lat_m, lon_m];
+            outdata.location_pos = [x(ix), y(ix)];
+            outdata.location_deg = [lat_m, lon_m];
             
         case 'point'
+            %%%%%%%%%%%%%%%%%%
             %% POINT
             % Get data on closest lidar return to query
+
             x = ptCloud.Location(:,1);
             y = ptCloud.Location(:,2);
             z = ptCloud.Location(:,3);
@@ -340,21 +409,30 @@ for ii = 1:n
                 lon_m = y(ix);
             end
 
+            % Set outdata fields
             if unitFoot
-                outdata.point_elevation_m = double(z(ixMatch));
-                outdata.point_elevation_ft = double(z(ixMatch)*m2ft);
+                outdata.elevation_m = double(z(ixMatch));
+                outdata.elevation_ft = double(z(ixMatch)*m2ft);
             else
-                outdata.point_elevation_m = double(z(ixMatch))/m2ft;
-                outdata.point_elevation_ft = double(z(ixMatch));
+                outdata.elevation_m = double(z(ixMatch))/m2ft;
+                outdata.elevation_ft = double(z(ixMatch));
             end
             
-            outdata.point_location_pos = double([x(ixMatch), y(ixMatch)]);
-            outdata.point_location_deg = double([lat_m, lon_m]);
+            outdata.location_pos = double([x(ixMatch), y(ixMatch)]);
+            outdata.location_deg = double([lat_m, lon_m]);
     end
+
+    % Set outdata Query Type
+    outdata.queryType = query_type{ii};
 end
-end
+end %% End Main Function
+
+%%%%%%%%%%%%%%%%%%%%%%%
+%% Helper functions
+%%%%%%%%%%%%%%%%%%%%%%%
 
 function txt = threeRows(~, info)
+% Controls data pointer output in 'search' plots
 global x_cursor y_cursor
 x_cursor = info.Position(1);
 y_cursor = info.Position(2);
