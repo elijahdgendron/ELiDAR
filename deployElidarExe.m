@@ -23,7 +23,7 @@ tmpreadme_exe = fullfile(lidarToolPath, 'README_EXE.txt');      % Move exe reame
 initAppName = fullfile(lidarToolPath, 'VisualApp.exe');         % App will deploy with this name
 finalAppName = fullfile(lidarToolPath, 'ELiDAR.exe');           % Change to this name
 otherFilesLocation = fullfile(lidarToolPath, 'Extra_exe_documentation');   % Move extra exe log files here
-otherFilesToMove = {fullfile(lidarToolPath, 'unresulvedSymbols.txt'), ...  % Other extra exe log files to move
+otherFilesToMove = {fullfile(lidarToolPath, 'unresolvedSymbols.txt'), ...  % Other extra exe log files to move
     fullfile(lidarToolPath, 'mccExcludedFiles.log'), ...
     fullfile(lidarToolPath, 'includedSupportPackages.txt'), ...
     fullfile(lidarToolPath, 'requiredMCRProducts.txt')};
@@ -45,6 +45,10 @@ movefile(initAppName, finalAppName);
 
 %% Move additional files
 for ii = 1:numel(otherFilesToMove)
-    movefile(otherFilesToMove{ii}, otherFilesLocation);
+    try
+        movefile(otherFilesToMove{ii}, otherFilesLocation);
+    catch ME
+        warning(ME.getReport)
+    end
 end
 end
